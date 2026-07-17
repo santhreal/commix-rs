@@ -21,7 +21,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-commix-rs = "0.0.3"
+commix-rs = "0.1.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 

@@ -284,6 +284,60 @@ fn builder_max_u8_threads_accepted() {
     let _runner = b.build();
 }
 
+#[test]
+fn builder_oversized_headers_count_preserved_in_argv() {
+    let count = 10_000usize;
+    let mut builder = CommixBuilder::new();
+    for i in 0..count {
+        builder = builder.header(format!("X-Hdr-{i}: value"));
+    }
+    let argv = builder.build().command_argv();
+    let header_flags = argv.iter().filter(|arg| *arg == "--header").count();
+    assert_eq!(
+        header_flags, count,
+        "each header() call must emit one --header argv pair"
+    );
+}
+
+#[test]
+fn builder_cookie_interior_null_command_argv_introspection_uses_placeholder() {
+    let cookie = "session=abc\x00def";
+    let argv = CommixBuilder::new()
+        .cookie(cookie)
+        .build()
+        .command_argv();
+    let cookie_argv = argv
+        .windows(2)
+        .find(|pair| pair[0] == "--cookie")
+        .map(|pair| pair[1].clone())
+        .expect("--cookie must be emitted for cookie() builder input");
+    assert_eq!(
+        cookie_argv, "<string-with-nul>",
+        "std::process::Command::get_args() cannot round-trip interior NUL bytes"
+    );
+}
+
+#[test]
+fn builder_auth_basic_unicode_username_encoded_in_argv_header() {
+    use base64::Engine;
+    let username = "用户名";
+    let password = "päss";
+    let expected_creds = format!("{username}:{password}");
+    let expected_b64 = base64::engine::general_purpose::STANDARD.encode(expected_creds.as_bytes());
+    let expected_header = format!("Authorization: Basic {expected_b64}");
+
+    let argv = CommixBuilder::new()
+        .auth_basic(username, password)
+        .build()
+        .command_argv();
+    let headers: Vec<&str> = argv
+        .windows(2)
+        .filter(|pair| pair[0] == "--header")
+        .map(|pair| pair[1].as_str())
+        .collect();
+    assert_eq!(headers, vec![expected_header.as_str()]);
+}
+
 // ---- CommixResult adversarial construction ----
 
 #[test]

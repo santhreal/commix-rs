@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-17
+
+### Added
+- Santh-standard test suite: `tests/contract.rs` (external contract), expanded
+  `tests/gap.rs` and `tests/adversarial.rs`.
+
+### Changed
+- Add `command_argv()` introspection helper for contract tests; pin existing
+  parser and argv gaps with Santh-standard test coverage (no parser/wiring fixes).
+
 ## [0.0.3] - 2026-07-17
 
 ### Fixed

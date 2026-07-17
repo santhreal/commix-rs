@@ -303,6 +303,18 @@ impl CommixRunner {
         }
     }
 
+    /// Returns argv tokens passed to the commix subprocess (program name first).
+    ///
+    /// Hidden; used by integration contract tests to assert documented CLI wiring.
+    #[doc(hidden)]
+    pub fn command_argv(&self) -> Vec<String> {
+        self.build_base_command()
+            .as_std()
+            .get_args()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect()
+    }
+
     /// Fires exactly one Commix scan asynchronously. Returns a monolithic result object at the end.
     #[tracing::instrument(skip(self), name = "commix_scan", fields(url = self.config.url.as_deref().unwrap_or("unknown")))]
     pub async fn scan(&self) -> Result<CommixResult, CommixError> {

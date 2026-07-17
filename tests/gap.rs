@@ -247,3 +247,41 @@ fn gap_auth_basic_builds_for_representative_credentials() {
         .build();
     let _runner2 = commix_rs::CommixBuilder::new().auth_basic("a", "b").build();
 }
+
+// ---- Gap: technique classification + injection_type ----
+
+/// Pin the documented parser limitation across eval/time-based commix output lines.
+#[test]
+fn gap_parser_technique_stays_classic_for_eval_and_time_based_output() {
+    let cases = [
+        "[+] The GET parameter 'q' is vulnerable to eval-based injection",
+        "[+] The GET parameter 'q' is vulnerable to time-based blind injection",
+        "[+] The POST parameter 'data' is vulnerable to file-based injection",
+    ];
+    for line in cases {
+        let mut p = StreamParser::new();
+        p.parse_line(line);
+        match p.parse_line("[+] Payload: q=1") {
+            ParseEvent::Finding(f) => assert_eq!(
+                f.technique,
+                Technique::Classic,
+                "gap: technique not classified from stream for line: {line}"
+            ),
+            _ => panic!("expected Finding for line: {line}"),
+        }
+    }
+}
+
+/// Pin injection_type stays Unknown for header-style commix output until parser grows.
+#[test]
+fn gap_parser_injection_type_unknown_for_header_parameter_output() {
+    let mut p = StreamParser::new();
+    p.parse_line("[+] The HTTP Header parameter 'X-Forwarded-For' is vulnerable");
+    match p.parse_line("[+] Payload: X-Forwarded-For=1;id") {
+        ParseEvent::Finding(f) => assert_eq!(
+            f.injection_type, "Unknown",
+            "gap: injection_type not parsed for header parameters"
+        ),
+        _ => panic!("expected Finding"),
+    }
+}
