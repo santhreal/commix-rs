@@ -18,7 +18,6 @@ pub struct CommixBuilder {
     pub(crate) timeout_secs: Option<u64>,
     /// Seconds to delay between each HTTP request (`commix --delay`).
     pub(crate) delay_secs: Option<u64>,
-    pub(crate) threads: Option<u8>,
     pub(crate) retries: Option<u8>,
     pub(crate) network_timeout: Option<u64>,
     pub(crate) random_agent: bool,
@@ -108,7 +107,11 @@ impl CommixBuilder {
         self
     }
 
-    /// Specifies technique to use (e.g. Classic, Eval, Time).
+    /// Specifies injection technique codes for `commix --technique`.
+    ///
+    /// Commix uses single-letter codes: `c` (classic/result-based), `e` (eval-based),
+    /// `t` (time-based blind), `f` (file-based).
+    /// Combine codes as a string (e.g. `"ctef"`).
     pub fn technique(mut self, technique: impl Into<String>) -> Self {
         self.technique = Some(technique.into());
         self
@@ -132,9 +135,9 @@ impl CommixBuilder {
         self
     }
 
-    /// Set parallel threads for requests.
-    pub fn threads(mut self, count: u8) -> Self {
-        self.threads = Some(count);
+    /// Deprecated: commix has no `--threads` flag; retained for API compatibility.
+    #[deprecated(since = "0.0.3", note = "commix has no --threads flag; method is a no-op")]
+    pub fn threads(self, _count: u8) -> Self {
         self
     }
 
@@ -217,7 +220,7 @@ mod tests {
         let builder = CommixBuilder::new()
             .url("http://test.com")
             .level(3)
-            .technique("T")
+            .technique("t")
             .ignore_waf(true)
             .batch(false)
             .cookie("session=123")
@@ -227,7 +230,7 @@ mod tests {
 
         assert_eq!(builder.url.unwrap(), "http://test.com");
         assert_eq!(builder.level.unwrap(), 3);
-        assert_eq!(builder.technique.unwrap(), "T");
+        assert_eq!(builder.technique.unwrap(), "t");
         assert!(builder.ignore_waf);
         assert!(!builder.batch);
         assert_eq!(builder.cookie.unwrap(), "session=123");

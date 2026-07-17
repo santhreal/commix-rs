@@ -477,7 +477,7 @@ async fn test_39_malformed_url() {
     let builder = commix_rs::CommixBuilder::new()
         .url("http://\x00\x00\x00")
         .build();
-    assert!(builder.is_available().await == false || true); // just checking it doesn't panic
+    let _ = builder.is_available().await; // malformed URL is not consulted; only checks no panic
 }
 
 #[tokio::test]

@@ -64,7 +64,7 @@ fn builder_all_fields_accepted_without_panic() {
         .header("X-Custom: yes")
         .proxy("http://127.0.0.1:8080")
         .level(3)
-        .technique("Classic")
+        .technique("ctef")
         .tamper_script("space2hash")
         .timeout_secs(30)
         .network_timeout(10)
@@ -289,8 +289,8 @@ async fn version_returns_string_or_io_error() {
             // If commix is installed, version string is a string (may be empty)
             let _ = s;
         }
-        Err(CommixError::Io(_)) => {
-            // Expected when commix is not installed
+        Err(CommixError::Io(_)) | Err(CommixError::ProcessFailed { .. }) => {
+            // Expected when commix is not installed or --version fails
         }
         Err(e) => panic!("unexpected error from version(): {}", e),
     }

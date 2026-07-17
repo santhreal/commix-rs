@@ -8,7 +8,7 @@
 
 Key capabilities:
 
-- Builder API covers every commix flag: URL, method, data, cookie, user-agent, proxy, level, technique, tamper scripts, threads, retries, timeouts, prefix/suffix, offline mode, and WAF bypass.
+- Builder API covers commix scan flags: URL, method, data, cookie, user-agent, proxy, level, technique, tamper scripts, retries, timeouts, prefix/suffix, offline mode, and WAF bypass (`ignore_waf` → `commix --skip-waf`).
 - Real-time streaming via `scan_stream(mpsc::Sender<CommixFinding>)` so findings arrive as they are discovered.
 - Structured output types (`CommixFinding`, `CommixResult`, `Confidence`, `Technique`) with full `serde` support for downstream JSON pipelines.
 - Basic-auth and bearer-token helpers that build the `Authorization` header (basic auth via the `base64` crate).
@@ -21,7 +21,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-commix-rs = "0.0.2"
+commix-rs = "0.0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -114,4 +114,4 @@ Contributions are welcome. Consult `STANDARD.md` at the workspace root for engin
 
 ## License
 
-Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at your option.
+Licensed under the [MIT License](LICENSE-MIT).

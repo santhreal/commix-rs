@@ -27,7 +27,7 @@ fn builder_full_chain_builds_without_panic() {
         .header("X-B: 2")
         .proxy("http://127.0.0.1:8080")
         .level(2)
-        .technique("Classic")
+        .technique("ctef")
         .tamper_script("space2hash")
         .tamper_script("charencode")
         .timeout_secs(120)

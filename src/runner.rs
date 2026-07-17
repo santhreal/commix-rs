@@ -87,7 +87,7 @@ impl CommixRunner {
             cmd.arg("--offline");
         }
         if self.config.ignore_waf {
-            cmd.arg("--ignore-waf");
+            cmd.arg("--skip-waf");
         }
 
         if let Some(url) = &self.config.url {
@@ -114,9 +114,6 @@ impl CommixRunner {
         }
         if let Some(tech) = &self.config.technique {
             cmd.arg("--technique").arg(tech);
-        }
-        if let Some(t) = self.config.threads {
-            cmd.arg("--threads").arg(t.to_string());
         }
         if let Some(r) = self.config.retries {
             cmd.arg("--retries").arg(r.to_string());
@@ -184,18 +181,25 @@ impl CommixRunner {
 
         let mut parser = StreamParser::new();
 
-        while let Ok(Some(line)) = reader.next_line().await {
-            match parser.parse_line(&line) {
-                ParseEvent::Finding(finding) => {
-                    // Instantly relay payload if streaming is enabled
-                    if let Some(ref sender) = tx {
-                        let _ = sender.send(finding.clone()).await;
+        loop {
+            match reader.next_line().await {
+                Ok(Some(line)) => match parser.parse_line(&line) {
+                    ParseEvent::Finding(finding) => {
+                        // Instantly relay payload if streaming is enabled
+                        if let Some(ref sender) = tx {
+                            let _ = sender.send(finding.clone()).await;
+                        }
+                        findings.push(finding);
                     }
-                    findings.push(finding);
+                    ParseEvent::Warning(warn) => warnings.push(warn),
+                    ParseEvent::Error(err) => execution_errors.push(err),
+                    ParseEvent::Wait => {}
+                },
+                Ok(None) => break,
+                Err(e) => {
+                    execution_errors.push(format!("stdout read error: {e}"));
+                    break;
                 }
-                ParseEvent::Warning(warn) => warnings.push(warn),
-                ParseEvent::Error(err) => execution_errors.push(err),
-                ParseEvent::Wait => {}
             }
         }
 
@@ -269,6 +273,16 @@ impl CommixRunner {
             .stderr(Stdio::piped())
             .output()
             .await?;
+        if !output.status.success() {
+            #[cfg(unix)]
+            let signal = std::os::unix::process::ExitStatusExt::signal(&output.status);
+            #[cfg(not(unix))]
+            let signal = None;
+            return Err(CommixError::ProcessFailed {
+                status: output.status.code(),
+                signal,
+            });
+        }
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
@@ -394,7 +408,8 @@ mod tests {
         assert!(cmd_str.contains("--url\" \"http://test.com?q=1\""));
         assert!(cmd_str.contains("--data\" \"hello=world\""));
         assert!(cmd_str.contains("--level\" \"2\""));
-        assert!(cmd_str.contains("--ignore-waf"));
+        assert!(cmd_str.contains("--skip-waf"));
+        assert!(!cmd_str.contains("--threads"));
         assert!(cmd_str.contains("--tamper\" \"space2hash\""));
         assert!(cmd_str.contains("--header\" \"X-Custom: 1\""));
         assert!(cmd_str.contains("--delay\" \"3\""));
@@ -413,6 +428,28 @@ mod tests {
             signal: Some(9),
         };
         assert!(err.to_string().contains("Some(9)"));
+    }
+
+    #[tokio::test]
+    async fn parse_stream_invalid_utf8_records_execution_error() {
+        let runner = Commix::builder().build();
+        let child = tokio::process::Command::new("bash")
+            .arg("-c")
+            .arg("printf '\\xff\\xfe\\n'; exit 0")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("bash required for invalid-utf8 test");
+
+        let result = runner.parse_stream(child, None).await.unwrap();
+        assert!(
+            result
+                .execution_errors
+                .iter()
+                .any(|e| e.contains("stdout read error")),
+            "expected stdout read error, got {:?}",
+            result.execution_errors
+        );
     }
 
     #[test]
