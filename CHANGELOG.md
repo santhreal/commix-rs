@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-07-17
+
+### Changed
+- Categories: `api-bindings` + `web-programming` (parity with sibling bindings).
+
 ## [0.0.1] - 2026-07-17
 
 ### Added

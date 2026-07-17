@@ -1,6 +1,6 @@
 [package]
 name = "commix-rs"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 rust-version = "1.70"
 authors = ["CORUM COLLECTIVE LLC (Santh Security)"]
@@ -11,7 +11,7 @@ repository = "https://github.com/santhsecurity/commix-rs"
 description = "Type-safe asynchronous wrapper for the Commix OS command-injection engine"
 readme = "README.md"
 keywords = ["commix", "security", "command-injection", "os-injection", "vulnerability"]
-categories = ["command-line-utilities", "web-programming"]
+categories = ["api-bindings", "web-programming"]
 exclude = [".github/", "BACKLOG.md"]
 
 [dependencies]
