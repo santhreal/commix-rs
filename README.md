@@ -13,7 +13,7 @@ Key capabilities:
 - Structured output types (`CommixFinding`, `CommixResult`, `Confidence`, `Technique`) with full `serde` support for downstream JSON pipelines.
 - `Technique` JSON wire names (via `#[serde(rename_all = "lowercase")]`): `classic`, `timebasedblind`, `evalbased`, `filebased`. Rust variants are `Classic`, `TimeBasedBlind`, `EvalBased`, `FileBased`.
 - Basic-auth and bearer-token helpers that build the `Authorization` header (basic auth via the `base64` crate).
-- Stderr capped at 64 KB to prevent memory exhaustion from noisy processes.
+- Stderr capped at 64 KB; stdout lines capped at 1 MB (oversize lines recorded in `execution_errors`).
 - `delay_secs` maps to `commix --delay` (seconds between HTTP requests).
 
 ## Quick start
@@ -22,7 +22,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-commix-rs = "0.1.2"
+commix-rs = "0.1.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -68,7 +68,7 @@ async fn main() {
     });
 
     while let Some(finding) = rx.recv().await {
-        // Parser gap: technique is always Classic until stream classification lands (see gap tests).
+        // Parser classifies technique from injectable-line keywords when present.
         println!("Found: {} via {:?}", finding.parameter, finding.technique);
     }
 }
@@ -87,7 +87,7 @@ async fn main() {
 
 - You only need a one-off manual scan - use `commix` directly on the CLI.
 - The target environment does not have `commix` installed and you cannot install it; this crate is purely a wrapper and does not embed the engine.
-- You need technique-level classification or injection-type detection from the stream parser - the current parser always reports `Technique::Classic` and `injection_type = "Unknown"` (see gap tests).
+- You need injection-type detection for parameters without GET/POST/HEADER context in commix output (see gap tests for `Unknown` fallback).
 
 ## Compared to alternatives
 
@@ -104,7 +104,7 @@ The primary advantage over ad-hoc subprocess code is the builder API, the `kill_
 
 `commix-rs` lives in `bindings/commix` and is one of several tool-binding crates in the Santh security research ecosystem. It feeds structured `CommixFinding` records into Santh's threat intelligence and orchestration pipelines alongside other detection crates. The `CommixResult` type implements `serde::Serialize`/`Deserialize` so findings can be stored, forwarded, or merged with results from other scanners.
 
-The crate depends only on `tokio` for async process I/O, `serde`/`serde_json` for serialization, `thiserror` for error types, and `tracing` for structured logging - all of which are already present in the Santh workspace.
+The crate depends only on `tokio` for async process I/O, `serde`/`serde_json` for serialization, and `tracing` for structured logging.
 
 ## Contributing
 
@@ -113,6 +113,7 @@ Contributions are welcome. Before sending a patch:
 1. Run `cargo test` — all tests must pass.
 2. Run `cargo clippy --all-targets -- -D warnings` — no warnings.
 3. Run `cargo fmt --check` — formatting must match.
+4. Run `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` — docs must build cleanly.
 
 ## License
 

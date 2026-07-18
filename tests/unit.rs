@@ -373,6 +373,60 @@ fn parser_error_line_returns_error_event() {
 }
 
 #[test]
+fn parser_modern_post_and_cookie_injection_types() {
+    let mut post = StreamParser::new();
+    post.parse_line(
+        "[21:53:04] [info] POST parameter 'ip' appears to be injectable via (results-based) classic command injection technique.",
+    );
+    match post.parse_line("           |_ localhost;echo LKHGJO") {
+        ParseEvent::Finding(f) => {
+            assert_eq!(f.parameter, "ip");
+            assert_eq!(f.injection_type, "POST");
+            assert_eq!(f.technique, Technique::Classic);
+        }
+        _ => panic!("expected POST finding"),
+    }
+
+    let mut cookie = StreamParser::new();
+    cookie.parse_line(
+        "Cookie parameter 'sessionid' appears to be injectable via (results-based) classic command injection technique.",
+    );
+    match cookie.parse_line("|_ sessionid=1;id") {
+        ParseEvent::Finding(f) => {
+            assert_eq!(f.parameter, "sessionid");
+            assert_eq!(f.injection_type, "COOKIE");
+        }
+        _ => panic!("expected COOKIE finding"),
+    }
+}
+
+#[test]
+fn parser_modern_warning_and_error_formats() {
+    let mut p = StreamParser::new();
+    match p.parse_line("[14:22:01] [warning] WAF/IPS detected") {
+        ParseEvent::Warning(w) => assert_eq!(w, "WAF/IPS detected"),
+        _ => panic!("expected Warning"),
+    }
+    match p.parse_line("[14:22:01] [error] Connection timed out") {
+        ParseEvent::Error(e) => assert_eq!(e, "Connection timed out"),
+        _ => panic!("expected Error"),
+    }
+}
+
+#[test]
+fn parser_technique_parsed_from_injectable_line() {
+    let mut p = StreamParser::new();
+    p.parse_line("[+] The GET parameter 'q' is vulnerable to time-based blind injection");
+    match p.parse_line("[+] Payload: q=1") {
+        ParseEvent::Finding(f) => {
+            assert_eq!(f.technique, Technique::TimeBasedBlind);
+            assert_eq!(f.injection_type, "GET");
+        }
+        _ => panic!("expected Finding"),
+    }
+}
+
+#[test]
 fn parser_full_finding_sequence_emits_finding() {
     let mut p = StreamParser::new();
     p.parse_line("Request: http://site.com?q=1");
@@ -382,6 +436,8 @@ fn parser_full_finding_sequence_emits_finding() {
             assert_eq!(f.parameter, "q");
             assert_eq!(f.payload, "q=1;id");
             assert_eq!(f.poc, "http://site.com?q=1");
+            assert_eq!(f.injection_type, "GET");
+            assert_eq!(f.technique, Technique::Classic);
             assert!(f.cve.is_none());
             assert_eq!(f.confidence, Confidence::Certain);
         }

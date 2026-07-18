@@ -5,3 +5,4 @@
 Cargo.lock
 BACKLOG.md
 
+**/proptest-regressions

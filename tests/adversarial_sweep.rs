@@ -470,7 +470,7 @@ async fn test_38_builder_huge_headers() {
     for i in 0..10000 {
         builder = builder.header(format!("X-Test-{}: {}", i, "A".repeat(100)));
     }
-    let runner = builder.build();
+    let runner = builder.url("http://test.com").build();
     assert!(runner
         .scan_stream(tokio::sync::mpsc::channel(1).0)
         .await

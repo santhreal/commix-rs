@@ -2,49 +2,8 @@
 /// change that alters these semantics is deliberate and visible in the diff.
 use commix_rs::{
     parser::{ParseEvent, StreamParser},
-    CommixFinding, CommixResult, Confidence, Technique,
+    Commix, CommixError, CommixFinding, CommixResult, Confidence, Technique,
 };
-
-// ---- Limitation: technique is always Classic regardless of actual commix output ----
-
-/// The StreamParser always assigns Technique::Classic to findings regardless of
-/// what commix says on stdout.  This is a known gap: the parser does not yet
-/// classify time-based or eval-based techniques from the stream.
-#[test]
-fn gap_parser_technique_always_classic() {
-    let mut p = StreamParser::new();
-    p.parse_line("[+] The GET parameter 'q' is vulnerable to time-based blind injection");
-    match p.parse_line("[+] Payload: q=1;sleep 5;#") {
-        ParseEvent::Finding(f) => {
-            // Pin: until the parser is extended, technique will always be Classic.
-            assert_eq!(
-                f.technique,
-                Technique::Classic,
-                "gap: parser does not classify technique from output; expected Classic"
-            );
-        }
-        _ => panic!("expected Finding"),
-    }
-}
-
-// ---- Limitation: injection_type is always "Unknown" ----
-
-/// The parser sets injection_type to the hard-coded string "Unknown" because
-/// the injection type (GET/POST/HEADER) is not yet parsed from the stream.
-#[test]
-fn gap_parser_injection_type_always_unknown() {
-    let mut p = StreamParser::new();
-    p.parse_line("[+] The POST parameter 'data' is vulnerable");
-    match p.parse_line("[+] Payload: data=x") {
-        ParseEvent::Finding(f) => {
-            assert_eq!(
-                f.injection_type, "Unknown",
-                "gap: injection_type is not parsed from stream"
-            );
-        }
-        _ => panic!("expected Finding"),
-    }
-}
 
 // ---- Limitation: confidence is always Certain ----
 
@@ -78,7 +37,6 @@ fn gap_parser_cve_last_one_wins() {
     p.parse_line("[+] The GET parameter 'q' is vulnerable");
     match p.parse_line("[+] Payload: q=1") {
         ParseEvent::Finding(f) => {
-            // Pin: last CVE wins; earlier ones are silently discarded.
             assert_eq!(
                 f.cve.as_deref(),
                 Some("CVE-2023-9999"),
@@ -127,7 +85,6 @@ fn gap_parser_cve_cleared_after_finding() {
         _ => panic!("expected Finding"),
     }
 
-    // Second finding should have NO CVE (state was cleared by take())
     p.parse_line("[+] The GET parameter 'b' is vulnerable");
     match p.parse_line("[+] Payload: b=1") {
         ParseEvent::Finding(f) => {
@@ -156,8 +113,6 @@ fn gap_result_is_vulnerable_does_not_imply_no_errors() {
         cve: None,
         confidence: Confidence::Certain,
     };
-    // A result can be both vulnerable AND have execution errors (design gap: no
-    // reconciliation of partial-success scans).
     let r = CommixResult {
         findings: vec![finding],
         warnings: vec![],
@@ -207,28 +162,20 @@ fn gap_result_display_one_based_index() {
 #[test]
 fn gap_stream_parser_is_send() {
     fn assert_send<T: Send>() {}
-    // StreamParser only holds String fields, so it IS Send.
-    // Pin: if this fails, a future refactor has introduced non-Send state.
     assert_send::<StreamParser>();
 }
 
 // ---- Gap: Commix binary absence causes scan() to return Io error ----
 
-/// When the commix binary is absent, scan() and scan_stream() return an Io error
-/// (NotFound).  This is exercised here without actually spawning a process by
-/// pointing to a nonexistent binary path.
 #[tokio::test]
 async fn gap_missing_binary_returns_io_error() {
-    use commix_rs::{Commix, CommixError};
-
     let runner = Commix::builder()
+        .url("http://example.com")
         .binary_path("/nonexistent/path/to/commix")
         .build();
 
     match runner.scan().await {
-        Err(CommixError::Io(_)) => {
-            // Expected: binary not found → Io error
-        }
+        Err(CommixError::Io(_)) => {}
         other => panic!(
             "expected CommixError::Io when binary is missing, got {:?}",
             other
@@ -238,8 +185,6 @@ async fn gap_missing_binary_returns_io_error() {
 
 // ---- Gap: auth_basic always builds (base64 via the `base64` crate) ----
 
-/// auth_basic uses the vetted `base64` crate. Pin that common credential
-/// shapes still build without panic after that swap.
 #[test]
 fn gap_auth_basic_builds_for_representative_credentials() {
     let _runner = commix_rs::CommixBuilder::new()
@@ -248,85 +193,67 @@ fn gap_auth_basic_builds_for_representative_credentials() {
     let _runner2 = commix_rs::CommixBuilder::new().auth_basic("a", "b").build();
 }
 
-// ---- Gap: technique classification + injection_type ----
+// ---- Gap: technique defaults to Classic when output has no technique keywords ----
 
-/// Pin the documented parser limitation across eval/time-based commix output lines.
+/// When the injectable line lacks recognizable technique keywords, the parser
+/// defaults to Classic (heuristic classification only).
 #[test]
-fn gap_parser_technique_stays_classic_for_eval_and_time_based_output() {
-    let cases = [
-        "[+] The GET parameter 'q' is vulnerable to eval-based injection",
-        "[+] The GET parameter 'q' is vulnerable to time-based blind injection",
-        "[+] The POST parameter 'data' is vulnerable to file-based injection",
-    ];
-    for line in cases {
-        let mut p = StreamParser::new();
-        p.parse_line(line);
-        match p.parse_line("[+] Payload: q=1") {
-            ParseEvent::Finding(f) => assert_eq!(
-                f.technique,
-                Technique::Classic,
-                "gap: technique not classified from stream for line: {line}"
-            ),
-            _ => panic!("expected Finding for line: {line}"),
-        }
-    }
-}
-
-/// Pin injection_type stays Unknown for header-style commix output until parser grows.
-#[test]
-fn gap_parser_injection_type_unknown_for_header_parameter_output() {
+fn gap_parser_technique_defaults_classic_without_keywords() {
     let mut p = StreamParser::new();
-    p.parse_line("[+] The HTTP Header parameter 'X-Forwarded-For' is vulnerable");
-    match p.parse_line("[+] Payload: X-Forwarded-For=1;id") {
+    p.parse_line(
+        "[14:22:01] [info] GET parameter 'q' appears to be injectable via unknown technique.",
+    );
+    match p.parse_line("|_ q=1") {
         ParseEvent::Finding(f) => assert_eq!(
-            f.injection_type, "Unknown",
-            "gap: injection_type not parsed for header parameters"
+            f.technique,
+            Technique::Classic,
+            "gap: unrecognized technique text defaults to Classic"
         ),
         _ => panic!("expected Finding"),
     }
 }
 
-// ---- Gap: CommixError::Validation is reserved / unused in library code ----
+// ---- Gap: injection_type Unknown for unrecognized parameter context ----
 
-/// `CommixError::Validation` is kept for API stability but no `src/` code constructs it.
 #[test]
-fn gap_validation_variant_unused() {
-    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut violations = Vec::new();
-
-    for entry in std::fs::read_dir(&src_dir).expect("read src/") {
-        let entry = entry.expect("src entry");
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
-            continue;
-        }
-        let content = std::fs::read_to_string(&path).expect("read src file");
-        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-        for (line_no, line) in content.lines().enumerate() {
-            if !line.contains("Validation(") {
-                continue;
-            }
-            let trimmed = line.trim();
-            if file_name == "error.rs"
-                && (trimmed == "Validation(String)," || trimmed.starts_with("Self::Validation("))
-            {
-                continue;
-            }
-            violations.push(format!("{}:{}: {}", path.display(), line_no + 1, trimmed));
-        }
+fn gap_parser_injection_type_unknown_without_method_hint() {
+    let mut p = StreamParser::new();
+    p.parse_line("The Foo parameter 'x' appears to be injectable via classic command injection");
+    match p.parse_line("|_ x=1") {
+        ParseEvent::Finding(f) => assert_eq!(
+            f.injection_type, "Unknown",
+            "gap: injection_type needs 'The GET/POST parameter' context"
+        ),
+        _ => panic!("expected Finding"),
     }
+}
 
-    assert!(
-        violations.is_empty(),
-        "gap: Validation( must not be constructed in src/ (reserved variant): {violations:?}"
-    );
+// ---- Validation is constructed for invalid scan configuration ----
+
+#[tokio::test]
+async fn validation_rejects_missing_url_before_scan() {
+    let runner = Commix::builder().build();
+    match runner.scan().await {
+        Err(CommixError::Validation(msg)) => assert!(msg.contains("URL")),
+        other => panic!("expected Validation for missing URL, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn validation_rejects_level_out_of_range() {
+    let runner = Commix::builder()
+        .url("http://example.com")
+        .level(0)
+        .binary_path("/nonexistent-commix-xyz")
+        .build();
+    match runner.scan().await {
+        Err(CommixError::Validation(msg)) => assert!(msg.contains("level")),
+        other => panic!("expected Validation for invalid level, got {other:?}"),
+    }
 }
 
 // ---- Contract: scan preflight spawns --version before scan subprocess ----
 
-/// `scan()` / `scan_stream()` run `commix --version` preflight before spawning the
-/// scan child (two subprocesses per call). Pinned in crate docs (`src/lib.rs`).
 #[test]
 fn gap_scan_runs_version_preflight_before_scan_process() {
     let lib_rs = std::fs::read_to_string(

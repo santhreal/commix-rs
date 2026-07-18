@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-17
+
+### Added
+- `StreamParser` support for current Commix stdout: `[HH:MM:SS] [info] … appears to be injectable`, `|_` payload continuations, `[warning]`/`[error]` (legacy `[!]`/`[x]`/`[+] Payload:` retained).
+- Technique and injection-type heuristics from injectable-line text (`classic`, `time-based`, `file-based`, `eval-based`; GET/POST/HEADER/COOKIE).
+- `redact_command_debug` for spawn `debug` logs; redacts `--cookie`, `--data`, and `Authorization` headers.
+- Stdout line cap (1 MB) with `execution_errors` entry; lossy stderr decode for invalid UTF-8.
+- `CommixError::Validation` for missing URL and `level` outside 1..=3 before scan.
+- Contract fixture `tests/fixtures/modern_transcript.txt`; validation proving tests replace `gap_validation_variant_unused`.
+- CI: `cargo fmt --check` and `RUSTDOCFLAGS=-D warnings cargo doc --no-deps`.
+
+### Changed
+- Removed unused `thiserror` dependency (errors remain hand-rolled `Display`).
+- README/TRUSTED_DEPS updated for parser/validation/credential-logging behaviour.
+
 ## [0.1.2] - 2026-07-17
 
 ### Added

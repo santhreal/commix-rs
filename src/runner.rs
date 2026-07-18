@@ -3,10 +3,13 @@ use crate::error::CommixError;
 use crate::parser::{ParseEvent, StreamParser};
 use crate::types::{CommixFinding, CommixResult};
 use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
+
+const STDERR_CAPTURE_LIMIT: u64 = 65_536;
+const MAX_STDOUT_LINE: usize = 1024 * 1024;
 
 /// Executes Commix scans securely, managing process pipes and lifecycle.
 pub struct CommixRunner {
@@ -159,18 +162,19 @@ impl CommixRunner {
 
         let stderr_handle = child.stderr.take().map(|stderr| {
             tokio::spawn(async move {
-                use tokio::io::AsyncReadExt;
-                let mut buf = String::new();
-                // Prevent memory exhaustion on noisy processes by limiting to 64KB
-                let mut limited = stderr.take(65536);
-                if limited.read_to_string(&mut buf).await.is_ok() && buf.len() == 65536 {
-                    buf.push_str("\n... (stderr truncated to 64KB)\n");
+                let mut bytes = Vec::new();
+                let mut limited = stderr.take(STDERR_CAPTURE_LIMIT);
+                let _ = limited.read_to_end(&mut bytes).await;
+                let mut msg = String::from_utf8_lossy(&bytes).into_owned();
+                if bytes.len() as u64 >= STDERR_CAPTURE_LIMIT {
+                    msg.push_str("\n... (stderr truncated to 64KB)\n");
                 }
-                buf
+                msg
             })
         });
 
-        let mut reader = BufReader::new(stdout).lines();
+        let mut reader = BufReader::new(stdout);
+        let mut line_buf = Vec::new();
         let mut findings = Vec::new();
         let mut warnings = Vec::new();
         let mut execution_errors = Vec::new();
@@ -178,20 +182,30 @@ impl CommixRunner {
         let mut parser = StreamParser::new();
 
         loop {
-            match reader.next_line().await {
-                Ok(Some(line)) => match parser.parse_line(&line) {
-                    ParseEvent::Finding(finding) => {
-                        // Instantly relay payload if streaming is enabled
-                        if let Some(ref sender) = tx {
-                            let _ = sender.send(finding.clone()).await;
-                        }
-                        findings.push(finding);
+            line_buf.clear();
+            match reader.read_until(b'\n', &mut line_buf).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    if line_buf.len() > MAX_STDOUT_LINE {
+                        execution_errors.push(format!(
+                            "stdout line exceeded {MAX_STDOUT_LINE} bytes; skipped"
+                        ));
+                        continue;
                     }
-                    ParseEvent::Warning(warn) => warnings.push(warn),
-                    ParseEvent::Error(err) => execution_errors.push(err),
-                    ParseEvent::Wait => {}
-                },
-                Ok(None) => break,
+                    let line = String::from_utf8_lossy(&line_buf);
+                    let line = line.trim_end_matches(['\r', '\n']);
+                    match parser.parse_line(line) {
+                        ParseEvent::Finding(finding) => {
+                            if let Some(ref sender) = tx {
+                                let _ = sender.send(finding.clone()).await;
+                            }
+                            findings.push(finding);
+                        }
+                        ParseEvent::Warning(warn) => warnings.push(warn),
+                        ParseEvent::Error(err) => execution_errors.push(err),
+                        ParseEvent::Wait => {}
+                    }
+                }
                 Err(e) => {
                     execution_errors.push(format!("stdout read error: {e}"));
                     break;
@@ -379,15 +393,31 @@ impl CommixRunner {
         }
     }
 
+    fn validate_config(&self) -> Result<(), CommixError> {
+        if self.config.url.is_none() {
+            return Err(CommixError::Validation(
+                "URL is required before scan; call .url(...) on the builder".into(),
+            ));
+        }
+        if let Some(level) = self.config.level {
+            if !(1..=3).contains(&level) {
+                return Err(CommixError::Validation(format!(
+                    "level must be 1, 2, or 3 (got {level})"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     async fn spawn_execution(
         &self,
         tx: Option<mpsc::Sender<CommixFinding>>,
     ) -> Result<CommixResult, CommixError> {
+        self.validate_config()?;
         self.ensure_binary_available().await?;
 
         let mut cmd = self.build_base_command();
-        // Fire child process safely
-        debug!("Spawning commix process: {:?}", cmd);
+        debug!("Spawning commix process: {}", redact_command_debug(&cmd));
         let child = cmd.spawn().map_err(|e| {
             error!("Failed to spawn commix process: {}", e);
             CommixError::Io(e)
@@ -396,6 +426,49 @@ impl CommixRunner {
         info!("Commix process spawned successfully. Awaiting results...");
         self.execute_with_timeout(child, tx).await
     }
+}
+
+/// Redact sensitive argv values for debug logging.
+pub(crate) fn redact_command_debug(cmd: &Command) -> String {
+    let std_cmd = cmd.as_std();
+    let mut parts = vec![format!("{:?}", std_cmd.get_program().to_string_lossy())];
+    let args: Vec<_> = std_cmd.get_args().collect();
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].to_string_lossy();
+        match arg.as_ref() {
+            "--cookie" | "--data" => {
+                parts.push(format!("{arg:?}"));
+                i += 1;
+                if i < args.len() {
+                    parts.push("\"<redacted>\"".to_string());
+                    i += 1;
+                }
+            }
+            "--header" => {
+                parts.push(format!("{arg:?}"));
+                i += 1;
+                if i < args.len() {
+                    let header = args[i].to_string_lossy();
+                    if header.contains("Authorization:") {
+                        parts.push("\"Authorization: <redacted>\"".to_string());
+                    } else {
+                        parts.push(format!("{header:?}"));
+                    }
+                    i += 1;
+                }
+            }
+            other if other.contains("Authorization:") => {
+                parts.push("\"<redacted>\"".to_string());
+                i += 1;
+            }
+            other => {
+                parts.push(format!("{other:?}"));
+                i += 1;
+            }
+        }
+    }
+    format!("[{}]", parts.join(", "))
 }
 
 #[cfg(test)]
@@ -526,7 +599,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn parse_stream_invalid_utf8_records_execution_error() {
+    async fn parse_stream_invalid_utf8_stdout_decoded_lossily() {
         let runner = Commix::builder().build();
         let child = tokio::process::Command::new("bash")
             .arg("-c")
@@ -538,13 +611,98 @@ mod tests {
 
         let result = runner.parse_stream(child, None).await.unwrap();
         assert!(
+            result.execution_errors.is_empty(),
+            "lossy stdout decode must not record read errors, got {:?}",
+            result.execution_errors
+        );
+    }
+
+    #[tokio::test]
+    async fn parse_stream_invalid_utf8_stderr_captured_lossily() {
+        let runner = Commix::builder().build();
+        let child = tokio::process::Command::new("bash")
+            .arg("-c")
+            .arg("printf '\\xff\\xfe' 1>&2; exit 1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("bash required for invalid-utf8 stderr test");
+
+        let err = runner.parse_stream(child, None).await.unwrap_err();
+        match err {
+            CommixError::ProcessFailed { stderr, .. } => {
+                assert!(
+                    !stderr.is_empty(),
+                    "invalid UTF-8 stderr must be captured via lossy decode"
+                );
+            }
+            other => panic!("expected ProcessFailed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn parse_stream_oversized_stdout_line_recorded_in_execution_errors() {
+        let runner = Commix::builder().build();
+        let child = tokio::process::Command::new("bash")
+            .arg("-c")
+            .arg("python3 -c \"print('A' * (1024 * 1024 + 1))\"")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("bash/python3 required for oversized stdout test");
+
+        let result = runner.parse_stream(child, None).await.unwrap();
+        assert!(
             result
                 .execution_errors
                 .iter()
-                .any(|e| e.contains("stdout read error")),
-            "expected stdout read error, got {:?}",
+                .any(|e| e.contains("stdout line exceeded")),
+            "expected oversized stdout line error, got {:?}",
             result.execution_errors
         );
+    }
+
+    #[test]
+    fn redact_command_debug_hides_cookie_and_authorization() {
+        let mut cmd = Command::new("commix");
+        cmd.arg("--url")
+            .arg("http://example.com")
+            .arg("--cookie")
+            .arg("session=supersecret")
+            .arg("--header")
+            .arg("Authorization: Bearer tok123")
+            .arg("--data")
+            .arg("user=admin&pass=secret");
+        let redacted = redact_command_debug(&cmd);
+        assert!(!redacted.contains("supersecret"));
+        assert!(!redacted.contains("tok123"));
+        assert!(!redacted.contains("user=admin"));
+        assert!(redacted.contains("--cookie"));
+        assert!(redacted.contains("<redacted>"));
+    }
+
+    #[tokio::test]
+    async fn scan_without_url_returns_validation_error() {
+        let runner = Commix::builder().build();
+        let err = runner.scan().await.unwrap_err();
+        match err {
+            CommixError::Validation(msg) => assert!(msg.contains("URL")),
+            other => panic!("expected Validation, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn scan_with_invalid_level_returns_validation_error() {
+        let runner = Commix::builder()
+            .url("http://example.com")
+            .level(99)
+            .binary_path("/nonexistent-commix-xyz")
+            .build();
+        let err = runner.scan().await.unwrap_err();
+        match err {
+            CommixError::Validation(msg) => assert!(msg.contains("level")),
+            other => panic!("expected Validation before spawn, got {other:?}"),
+        }
     }
 
     #[test]

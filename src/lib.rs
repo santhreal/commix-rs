@@ -27,7 +27,8 @@
 //! - **Input size:** No cap on URL, data, cookie, or header strings passed to the builder. Stderr
 //!   captured from the commix subprocess is hard-limited to 64 KB (`stderr.take(65536)` in
 //!   `runner::CommixRunner::parse_stream`); bytes beyond that are discarded and a truncation note
-//!   is appended.
+//!   is appended. Individual stdout lines are capped at 1 MB; oversize lines are skipped and
+//!   recorded in `execution_errors`.
 //! - **Recursion depth:** This crate contains no recursive algorithms. The stream parser is a flat
 //!   state machine; the builder and runner use only iterative loops.
 //! - **Outbound network:** This crate makes no outbound network connections itself. All HTTP traffic
@@ -44,7 +45,7 @@
 //! - **Credential exposure:** Cookies, bearer tokens, and basic-auth credentials supplied via the
 //!   builder are forwarded to `commix` as command-line arguments. These values may appear in the
 //!   OS process table for the lifetime of the subprocess. They are not emitted at `tracing` info
-//!   or debug level by this crate.
+//!   level; `debug` spawn logs redact `--cookie`, `--data`, and `Authorization` header values.
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]

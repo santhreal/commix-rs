@@ -73,7 +73,54 @@ fn contract_readme_version_pin_matches_cargo_package_version() {
         readme_pin, package_version,
         "README install pin must match Cargo.toml version"
     );
-    assert_eq!(package_version, "0.1.2", "expected release version 0.1.2");
+    assert_eq!(package_version, "0.1.3", "expected release version 0.1.3");
+}
+
+#[test]
+fn contract_modern_transcript_fixture_produces_finding() {
+    use commix_rs::parser::{ParseEvent, StreamParser};
+    use commix_rs::Technique;
+
+    let transcript = read_workspace_file("tests/fixtures/modern_transcript.txt");
+    let mut parser = StreamParser::new();
+    let mut findings = Vec::new();
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+
+    for line in transcript.lines() {
+        match parser.parse_line(line) {
+            ParseEvent::Finding(f) => findings.push(f),
+            ParseEvent::Warning(w) => warnings.push(w),
+            ParseEvent::Error(e) => errors.push(e),
+            ParseEvent::Wait => {}
+        }
+    }
+
+    assert_eq!(
+        findings.len(),
+        1,
+        "modern transcript must yield one finding"
+    );
+    assert_eq!(findings[0].parameter, "ip");
+    assert_eq!(findings[0].payload, ";echo AWMZVA; id");
+    assert_eq!(findings[0].technique, Technique::Classic);
+    assert_eq!(warnings, vec!["WAF/IPS detected".to_string()]);
+    assert_eq!(errors, vec!["Connection timed out".to_string()]);
+}
+
+#[test]
+fn contract_scan_requires_url_validation() {
+    use commix_rs::{Commix, CommixError};
+
+    let runner = Commix::builder().build();
+    let err = tokio::runtime::Runtime::new()
+        .expect("runtime")
+        .block_on(runner.scan())
+        .expect_err("scan without url must fail");
+    match err {
+        CommixError::Validation(msg) => assert!(msg.contains("URL")),
+        other => panic!("expected Validation, got {other:?}"),
+    }
 }
 
 #[test]

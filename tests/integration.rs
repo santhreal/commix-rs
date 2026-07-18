@@ -123,9 +123,9 @@ fn parser_pipeline_produces_correct_aggregated_state() {
     let lines = [
         "Starting commix v0.9...",
         "Request: http://target.com?id=1",
-        "[+] The GET parameter 'id' is vulnerable to classic command injection",
-        "[+] Payload: id=1;cat /etc/passwd;#",
-        "[!] WAF detected, retrying with evasion",
+        "[14:22:01] [info] GET parameter 'id' appears to be injectable via (results-based) classic command injection technique.",
+        "           |_ id=1;cat /etc/passwd;#",
+        "[14:22:01] [warning] WAF detected, retrying with evasion",
         "Request: http://target.com?name=1",
         "CVE-2021-3156",
         "[+] The GET parameter 'name' is vulnerable to classic command injection",
@@ -150,6 +150,7 @@ fn parser_pipeline_produces_correct_aggregated_state() {
     assert_eq!(findings[0].parameter, "id");
     assert_eq!(findings[0].payload, "id=1;cat /etc/passwd;#");
     assert_eq!(findings[0].poc, "http://target.com?id=1");
+    assert_eq!(findings[0].injection_type, "GET");
     assert_eq!(findings[0].cve, None);
 
     assert_eq!(findings[1].parameter, "name");
@@ -221,6 +222,7 @@ async fn scan_stream_channel_with_missing_binary_returns_io_error() {
     let (tx, mut rx) = mpsc::channel(32);
     let runner = CommixBuilder::new()
         .binary_path("/nonexistent/commix_binary")
+        .url("http://example.com")
         .build();
 
     let result = runner.scan_stream(tx).await;

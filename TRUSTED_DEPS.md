@@ -6,7 +6,6 @@ Each external dependency uses a caret range in `Cargo.toml` and is audited befor
 - proptest
 - serde
 - serde_json
-- thiserror
 - tokio
 - tracing
 - tracing-subscriber
