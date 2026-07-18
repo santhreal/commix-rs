@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-17
+
+### Added
+- Contract argv coverage for `user_agent`, `proxy`, `retries`, `network_timeout`, `random_agent`, `header`/`auth_*`, `tamper_script`, `level`.
+- Gap test `gap_validation_variant_unused` pinning `CommixError::Validation` as reserved/unused in `src/`.
+- README documents `Technique` serde wire names (`classic`, `timebasedblind`, `evalbased`, `filebased`).
+
+### Changed
+- Integration/adversarial `is_available()` smokes replaced with nonexistent-binary oracles where applicable.
+- `CommixError::Validation` rustdoc notes reserved/unused status.
+
 ## [0.1.1] - 2026-07-17
 
 ### Fixed

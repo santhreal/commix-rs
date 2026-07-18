@@ -11,6 +11,7 @@ Key capabilities:
 - Builder API covers commix scan flags: URL, method, data, cookie, user-agent, proxy, level, technique, tamper scripts, retries, timeouts, prefix/suffix, offline mode, and WAF bypass (`ignore_waf` → `commix --skip-waf`).
 - Real-time streaming via `scan_stream(mpsc::Sender<CommixFinding>)` so findings arrive as they are discovered.
 - Structured output types (`CommixFinding`, `CommixResult`, `Confidence`, `Technique`) with full `serde` support for downstream JSON pipelines.
+- `Technique` JSON wire names (via `#[serde(rename_all = "lowercase")]`): `classic`, `timebasedblind`, `evalbased`, `filebased`. Rust variants are `Classic`, `TimeBasedBlind`, `EvalBased`, `FileBased`.
 - Basic-auth and bearer-token helpers that build the `Authorization` header (basic auth via the `base64` crate).
 - Stderr capped at 64 KB to prevent memory exhaustion from noisy processes.
 - `delay_secs` maps to `commix --delay` (seconds between HTTP requests).
@@ -21,7 +22,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-commix-rs = "0.1.1"
+commix-rs = "0.1.2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -67,6 +68,7 @@ async fn main() {
     });
 
     while let Some(finding) = rx.recv().await {
+        // Parser gap: technique is always Classic until stream classification lands (see gap tests).
         println!("Found: {} via {:?}", finding.parameter, finding.technique);
     }
 }

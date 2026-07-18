@@ -560,4 +560,15 @@ mod tests {
             cmd_str.contains("python3") && cmd_str.contains("/opt/Security Tools/commix/commix.py")
         );
     }
+
+    #[test]
+    fn test_default_binary_path_uses_commix() {
+        let runner = Commix::builder().build();
+        let cmd = runner.build_bare_command();
+        let cmd_str = format!("{cmd:?}");
+        assert!(
+            cmd_str.contains("commix"),
+            "unset binary_path must default to commix program name: {cmd_str}"
+        );
+    }
 }

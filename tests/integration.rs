@@ -17,12 +17,14 @@ fn commix_builder_returns_builder() {
 }
 
 #[tokio::test]
-async fn commix_is_available_returns_bool_without_panic() {
-    // commix binary is not expected in CI; we only check the call doesn't panic.
-    let runner = Commix::builder().build();
-    let available: bool = runner.is_available().await;
-    // Value is allowed to be either true or false - just must not panic.
-    let _ = available;
+async fn commix_is_available_false_for_nonexistent_binary() {
+    let runner = Commix::builder()
+        .binary_path("/nonexistent-commix-xyz")
+        .build();
+    assert!(
+        !runner.is_available().await,
+        "missing binary must report unavailable"
+    );
 }
 
 #[tokio::test]
@@ -106,30 +108,6 @@ fn builder_random_agent_false_builds_without_panic() {
 }
 
 // ---- Binary path splitting integration (via is_available, which uses bare_command) ----
-
-#[tokio::test]
-async fn python3_invocation_does_not_panic() {
-    // Just verify construction and is_available call complete without panic.
-    let runner = CommixBuilder::new()
-        .binary_path("python3 /opt/commix/commix.py")
-        .build();
-    let _ = runner.is_available().await;
-}
-
-#[tokio::test]
-async fn quoted_path_with_spaces_does_not_panic() {
-    let runner = CommixBuilder::new()
-        .binary_path("python3 \"/opt/Security Tools/commix/commix.py\"")
-        .build();
-    let _ = runner.is_available().await;
-}
-
-#[tokio::test]
-async fn empty_binary_path_does_not_panic() {
-    // When binary_path is not set, "commix" is used; just verify no panic.
-    let runner = CommixBuilder::new().build();
-    let _ = runner.is_available().await;
-}
 
 // ---- Full parser pipeline (no real process) ----
 

@@ -185,16 +185,18 @@ fn test_15_concurrent_parser() {
 
 #[tokio::test]
 async fn test_16_concurrent_runner_is_available() {
-    let runner = Arc::new(Commix::builder().build());
+    let runner = Arc::new(
+        Commix::builder()
+            .binary_path("/nonexistent-commix-xyz")
+            .build(),
+    );
     let mut handles = vec![];
     for _ in 0..8 {
         let r = runner.clone();
-        handles.push(tokio::spawn(async move {
-            r.is_available().await;
-        }));
+        handles.push(tokio::spawn(async move { !r.is_available().await }));
     }
     for handle in handles {
-        handle.await.unwrap();
+        assert!(handle.await.unwrap(), "missing binary must be unavailable");
     }
 }
 
@@ -416,11 +418,11 @@ fn test_33_parser_multiple_vulns() {
 
 #[tokio::test]
 async fn test_34_builder_base64_overflow() {
-    // Tests functional behavior, actual overflow test may OOM if allowed.
     let runner = commix_rs::CommixBuilder::new()
         .auth_basic("admin", "password")
+        .binary_path("/nonexistent-commix-xyz")
         .build();
-    let _ = runner.is_available().await;
+    assert!(!runner.is_available().await);
 }
 
 #[tokio::test]
@@ -447,15 +449,18 @@ fn test_36_parser_fuzz_garbage() {
 #[tokio::test]
 async fn test_37_concurrent_100_threads() {
     let mut handles = vec![];
-    let runner = std::sync::Arc::new(commix_rs::Commix::builder().url("http://test.com").build());
+    let runner = std::sync::Arc::new(
+        commix_rs::Commix::builder()
+            .url("http://test.com")
+            .binary_path("/nonexistent-commix-xyz")
+            .build(),
+    );
     for _ in 0..100 {
         let r = runner.clone();
-        handles.push(tokio::spawn(async move {
-            r.is_available().await;
-        }));
+        handles.push(tokio::spawn(async move { !r.is_available().await }));
     }
     for handle in handles {
-        handle.await.unwrap();
+        assert!(handle.await.unwrap());
     }
 }
 
@@ -476,8 +481,12 @@ async fn test_38_builder_huge_headers() {
 async fn test_39_malformed_url() {
     let builder = commix_rs::CommixBuilder::new()
         .url("http://\x00\x00\x00")
+        .binary_path("/nonexistent-commix-xyz")
         .build();
-    let _ = builder.is_available().await; // malformed URL is not consulted; only checks no panic
+    assert!(
+        !builder.is_available().await,
+        "malformed URL must not affect binary availability check"
+    );
 }
 
 #[tokio::test]
@@ -489,25 +498,31 @@ async fn test_40_integer_bounds() {
         .threads(u8::MAX)
         .retries(u8::MAX)
         .level(u8::MAX)
+        .binary_path("/nonexistent-commix-xyz")
         .build();
-    let _ = runner.is_available().await;
+    assert!(!runner.is_available().await);
 }
 
 #[tokio::test]
 async fn test_41_runner_split_command_escape_end() {
-    // Tests that split_command_string handles an escape at the very end without panicking
     let runner = commix_rs::Commix::builder()
-        .binary_path("commix \\")
+        .binary_path("/nonexistent-commix-xyz \\")
         .build();
-    let _ = runner.is_available().await;
+    assert!(
+        !runner.is_available().await,
+        "dangling escape path must not report available"
+    );
 }
 
 #[tokio::test]
 async fn test_42_runner_split_command_quotes_unterminated() {
     let runner = commix_rs::Commix::builder()
-        .binary_path("commix \"unterminated")
+        .binary_path("/nonexistent-commix-xyz \"unterminated")
         .build();
-    let _ = runner.is_available().await;
+    assert!(
+        !runner.is_available().await,
+        "unterminated quote path must not report available"
+    );
 }
 
 #[test]

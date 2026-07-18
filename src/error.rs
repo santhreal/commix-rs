@@ -28,7 +28,7 @@ pub enum CommixError {
     /// A configured timeout was reached before the scan completed.
     Timeout,
 
-    /// Validation error for invalid parameters.
+    /// Reserved for future parameter validation. Not constructed by library code in 0.1.x.
     Validation(String),
 }
 

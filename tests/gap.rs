@@ -286,6 +286,43 @@ fn gap_parser_injection_type_unknown_for_header_parameter_output() {
     }
 }
 
+// ---- Gap: CommixError::Validation is reserved / unused in library code ----
+
+/// `CommixError::Validation` is kept for API stability but no `src/` code constructs it.
+#[test]
+fn gap_validation_variant_unused() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut violations = Vec::new();
+
+    for entry in std::fs::read_dir(&src_dir).expect("read src/") {
+        let entry = entry.expect("src entry");
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let content = std::fs::read_to_string(&path).expect("read src file");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+        for (line_no, line) in content.lines().enumerate() {
+            if !line.contains("Validation(") {
+                continue;
+            }
+            let trimmed = line.trim();
+            if file_name == "error.rs"
+                && (trimmed == "Validation(String)," || trimmed.starts_with("Self::Validation("))
+            {
+                continue;
+            }
+            violations.push(format!("{}:{}: {}", path.display(), line_no + 1, trimmed));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "gap: Validation( must not be constructed in src/ (reserved variant): {violations:?}"
+    );
+}
+
 // ---- Contract: scan preflight spawns --version before scan subprocess ----
 
 /// `scan()` / `scan_stream()` run `commix --version` preflight before spawning the

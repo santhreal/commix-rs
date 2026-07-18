@@ -73,7 +73,7 @@ fn contract_readme_version_pin_matches_cargo_package_version() {
         readme_pin, package_version,
         "README install pin must match Cargo.toml version"
     );
-    assert_eq!(package_version, "0.1.1", "expected release version 0.1.1");
+    assert_eq!(package_version, "0.1.2", "expected release version 0.1.2");
 }
 
 #[test]
@@ -189,5 +189,66 @@ fn contract_technique_ctef_emits_documented_argv_pair() {
         argv_flag_value(&argv, "--technique").as_deref(),
         Some("ctef"),
         "builder rustdoc documents ctef letter codes for --technique"
+    );
+}
+
+#[test]
+fn contract_remaining_readme_builder_flags_emit_expected_argv_tokens() {
+    let argv = CommixBuilder::new()
+        .url("http://example.com")
+        .user_agent("Mozilla/5.0 Test")
+        .proxy("http://127.0.0.1:8080")
+        .retries(3)
+        .network_timeout(15)
+        .random_agent(true)
+        .header("X-Custom: yes")
+        .auth_bearer("tok123")
+        .auth_basic("user", "pass")
+        .tamper_script("space2plus")
+        .level(2)
+        .build()
+        .command_argv();
+
+    assert_eq!(
+        argv_flag_value(&argv, "--user-agent").as_deref(),
+        Some("Mozilla/5.0 Test")
+    );
+    assert_eq!(
+        argv_flag_value(&argv, "--proxy").as_deref(),
+        Some("http://127.0.0.1:8080")
+    );
+    assert_eq!(argv_flag_value(&argv, "--retries").as_deref(), Some("3"));
+    assert_eq!(
+        argv_flag_value(&argv, "--timeout").as_deref(),
+        Some("15"),
+        "network_timeout maps to commix --timeout"
+    );
+    assert!(argv_contains(&argv, "--random-agent"));
+    assert_eq!(argv_flag_value(&argv, "--level").as_deref(), Some("2"));
+    assert_eq!(
+        argv_flag_value(&argv, "--tamper").as_deref(),
+        Some("space2plus")
+    );
+
+    let header_values: Vec<&str> = argv
+        .windows(2)
+        .filter(|pair| pair[0] == "--header")
+        .map(|pair| pair[1].as_str())
+        .collect();
+    assert!(
+        header_values.contains(&"X-Custom: yes"),
+        "header() must emit --header: {header_values:?}"
+    );
+    assert!(
+        header_values
+            .iter()
+            .any(|h| h.starts_with("Authorization: Bearer tok123")),
+        "auth_bearer must emit Authorization header: {header_values:?}"
+    );
+    assert!(
+        header_values
+            .iter()
+            .any(|h| h.starts_with("Authorization: Basic ")),
+        "auth_basic must emit Authorization header: {header_values:?}"
     );
 }
