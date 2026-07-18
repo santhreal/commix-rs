@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-17
+
+### Fixed
+- Clippy `-D warnings`: `#[allow(deprecated)]` on intentional `threads()` test calls.
+- Crate docs: `scan`/`scan_stream` document `--version` preflight before the scan subprocess.
+- Preflight errors distinguish missing binary (`NotFound`) from `--version` failure.
+- `command_argv` rustdoc: flag tokens only (no program name).
+- `ProcessFailed` includes captured stderr; stderr task is joined before failure.
+- README Contributing: `cargo test`, `cargo clippy`, `cargo fmt --check`.
+- `Technique` rustdoc documents serde wire names (`timebasedblind`, etc.).
+
+### Changed
+- Add empty `[workspace]` for nested Santh tree isolation.
+- Gitignore `BACKLOG.md`.
+
 ## [0.1.0] - 2026-07-17
 
 ### Added

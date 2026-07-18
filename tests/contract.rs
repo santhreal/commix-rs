@@ -34,11 +34,7 @@ fn cargo_toml_array_field(content: &str, key: &str) -> Vec<String> {
         .unwrap_or_else(|| panic!("Cargo.toml {key} array not terminated"));
     rest[..end]
         .split(',')
-        .map(|item| {
-            item.trim()
-                .trim_matches('"')
-                .to_string()
-        })
+        .map(|item| item.trim().trim_matches('"').to_string())
         .filter(|item| !item.is_empty())
         .collect()
 }
@@ -77,7 +73,7 @@ fn contract_readme_version_pin_matches_cargo_package_version() {
         readme_pin, package_version,
         "README install pin must match Cargo.toml version"
     );
-    assert_eq!(package_version, "0.1.0", "expected release version 0.1.0");
+    assert_eq!(package_version, "0.1.1", "expected release version 0.1.1");
 }
 
 #[test]
@@ -155,10 +151,7 @@ fn contract_documented_builder_flags_emit_expected_argv_tokens() {
         Some("http://example.com/page?id=1")
     );
     assert_eq!(argv_flag_value(&argv, "--method").as_deref(), Some("POST"));
-    assert_eq!(
-        argv_flag_value(&argv, "--data").as_deref(),
-        Some("a=1&b=2")
-    );
+    assert_eq!(argv_flag_value(&argv, "--data").as_deref(), Some("a=1&b=2"));
     assert_eq!(
         argv_flag_value(&argv, "--cookie").as_deref(),
         Some("session=abc")

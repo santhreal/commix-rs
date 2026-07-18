@@ -157,22 +157,18 @@ impl CommixRunner {
             std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Failed to capture stdout")
         })?;
 
-        let stderr_context = std::sync::Arc::new(tokio::sync::Mutex::new(String::new()));
-        if let Some(stderr) = child.stderr.take() {
-            let stderr_clone = stderr_context.clone();
+        let stderr_handle = child.stderr.take().map(|stderr| {
             tokio::spawn(async move {
                 use tokio::io::AsyncReadExt;
                 let mut buf = String::new();
                 // Prevent memory exhaustion on noisy processes by limiting to 64KB
                 let mut limited = stderr.take(65536);
-                if limited.read_to_string(&mut buf).await.is_ok() {
-                    if buf.len() == 65536 {
-                        buf.push_str("\n... (stderr truncated to 64KB)\n");
-                    }
-                    *stderr_clone.lock().await = buf;
+                if limited.read_to_string(&mut buf).await.is_ok() && buf.len() == 65536 {
+                    buf.push_str("\n... (stderr truncated to 64KB)\n");
                 }
-            });
-        }
+                buf
+            })
+        });
 
         let mut reader = BufReader::new(stdout).lines();
         let mut findings = Vec::new();
@@ -204,11 +200,15 @@ impl CommixRunner {
         }
 
         let status = child.wait().await?;
+        let stderr_msg = if let Some(handle) = stderr_handle {
+            handle.await.unwrap_or_default()
+        } else {
+            String::new()
+        };
+        if !stderr_msg.is_empty() {
+            debug!("Commix stderr: {}", stderr_msg);
+        }
         if !status.success() && findings.is_empty() {
-            let stderr_msg = stderr_context.lock().await.clone();
-            if !stderr_msg.is_empty() {
-                debug!("Commix stderr: {}", stderr_msg);
-            }
             error!("Commix exited with status {} and no findings", status);
             #[cfg(unix)]
             let signal = std::os::unix::process::ExitStatusExt::signal(&status);
@@ -217,6 +217,7 @@ impl CommixRunner {
             return Err(CommixError::ProcessFailed {
                 status: status.code(),
                 signal,
+                stderr: stderr_msg,
             });
         }
 
@@ -278,9 +279,11 @@ impl CommixRunner {
             let signal = std::os::unix::process::ExitStatusExt::signal(&output.status);
             #[cfg(not(unix))]
             let signal = None;
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             return Err(CommixError::ProcessFailed {
                 status: output.status.code(),
                 signal,
+                stderr,
             });
         }
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -303,7 +306,7 @@ impl CommixRunner {
         }
     }
 
-    /// Returns argv tokens passed to the commix subprocess (program name first).
+    /// Returns argv flag tokens passed to the commix subprocess (program name omitted).
     ///
     /// Hidden; used by integration contract tests to assert documented CLI wiring.
     #[doc(hidden)]
@@ -352,16 +355,35 @@ impl CommixRunner {
         self.spawn_execution(Some(stream)).await
     }
 
+    async fn ensure_binary_available(&self) -> Result<(), CommixError> {
+        let mut cmd = self.build_bare_command();
+        match cmd
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+        {
+            Ok(status) if status.success() => Ok(()),
+            Ok(_) => Err(CommixError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "commix --version failed (binary present but not runnable)",
+            ))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Err(CommixError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "commix binary not found in PATH or configured path",
+                )))
+            }
+            Err(e) => Err(CommixError::Io(e)),
+        }
+    }
+
     async fn spawn_execution(
         &self,
         tx: Option<mpsc::Sender<CommixFinding>>,
     ) -> Result<CommixResult, CommixError> {
-        if !self.is_available().await {
-            return Err(CommixError::Io(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "commix binary not found in PATH or configured path",
-            )));
-        }
+        self.ensure_binary_available().await?;
 
         let mut cmd = self.build_base_command();
         // Fire child process safely
@@ -415,7 +437,7 @@ mod tests {
             .build();
 
         let cmd = runner.build_base_command();
-        let cmd_str = format!("{:?}", cmd);
+        let cmd_str = format!("{cmd:?}");
 
         assert!(cmd_str.contains("--url\" \"http://test.com?q=1\""));
         assert!(cmd_str.contains("--data\" \"hello=world\""));
@@ -433,13 +455,74 @@ mod tests {
         let err = CommixError::ProcessFailed {
             status: Some(2),
             signal: None,
+            stderr: String::new(),
         };
         assert!(err.to_string().contains("Some(2)"));
         let err = CommixError::ProcessFailed {
             status: None,
             signal: Some(9),
+            stderr: String::new(),
         };
         assert!(err.to_string().contains("Some(9)"));
+    }
+
+    #[tokio::test]
+    async fn parse_stream_process_failed_includes_stderr() {
+        let runner = Commix::builder().build();
+        let child = tokio::process::Command::new("bash")
+            .arg("-c")
+            .arg("echo commix-rs-stderr-marker 1>&2; exit 1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("bash required for stderr capture test");
+
+        let err = runner.parse_stream(child, None).await.unwrap_err();
+        match err {
+            CommixError::ProcessFailed { stderr, .. } => {
+                assert!(
+                    stderr.contains("commix-rs-stderr-marker"),
+                    "expected stderr in ProcessFailed, got {stderr:?}"
+                );
+            }
+            other => panic!("expected ProcessFailed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn ensure_binary_available_distinguishes_version_failure_from_not_found() {
+        let dir = std::env::temp_dir().join(format!("commix_rs_preflight_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let script = dir.join("fake_commix.sh");
+        std::fs::write(&script, "#!/bin/sh\nexit 1\n").expect("write fake commix script");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod fake commix script");
+        }
+
+        let runner = Commix::builder()
+            .url("http://example.com")
+            .binary_path(script.to_string_lossy().into_owned())
+            .build();
+        let err = runner.scan().await.unwrap_err();
+        match err {
+            CommixError::Io(e) => {
+                assert_ne!(
+                    e.kind(),
+                    std::io::ErrorKind::NotFound,
+                    "version failure must not be reported as NotFound"
+                );
+                assert!(
+                    e.to_string().contains("--version failed"),
+                    "expected version failure message, got {e}"
+                );
+            }
+            other => panic!("expected Io version failure, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
@@ -470,7 +553,7 @@ mod tests {
             .binary_path("python3 \"/opt/Security Tools/commix/commix.py\"")
             .build();
         let cmd = runner.build_bare_command();
-        let cmd_str = format!("{:?}", cmd);
+        let cmd_str = format!("{cmd:?}");
 
         // Ensure "python3" is the binary and "/opt/Security Tools/commix/commix.py" is the first argument
         assert!(

@@ -481,6 +481,7 @@ async fn test_39_malformed_url() {
 }
 
 #[tokio::test]
+#[allow(deprecated)]
 async fn test_40_integer_bounds() {
     let runner = commix_rs::CommixBuilder::new()
         .timeout_secs(u64::MAX)

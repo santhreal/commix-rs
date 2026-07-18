@@ -3,4 +3,5 @@
 *.swo
 .DS_Store
 Cargo.lock
+BACKLOG.md
 

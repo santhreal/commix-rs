@@ -136,7 +136,10 @@ impl CommixBuilder {
     }
 
     /// Deprecated: commix has no `--threads` flag; retained for API compatibility.
-    #[deprecated(since = "0.0.3", note = "commix has no --threads flag; method is a no-op")]
+    #[deprecated(
+        since = "0.0.3",
+        note = "commix has no --threads flag; method is a no-op"
+    )]
     pub fn threads(self, _count: u8) -> Self {
         self
     }

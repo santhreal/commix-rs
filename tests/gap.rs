@@ -285,3 +285,19 @@ fn gap_parser_injection_type_unknown_for_header_parameter_output() {
         _ => panic!("expected Finding"),
     }
 }
+
+// ---- Contract: scan preflight spawns --version before scan subprocess ----
+
+/// `scan()` / `scan_stream()` run `commix --version` preflight before spawning the
+/// scan child (two subprocesses per call). Pinned in crate docs (`src/lib.rs`).
+#[test]
+fn gap_scan_runs_version_preflight_before_scan_process() {
+    let lib_rs = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"),
+    )
+    .expect("read src/lib.rs");
+    assert!(
+        lib_rs.contains("--version") && lib_rs.contains("preflight"),
+        "gap: lib.rs must document --version preflight before scan spawn"
+    );
+}

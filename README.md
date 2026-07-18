@@ -21,7 +21,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-commix-rs = "0.1.0"
+commix-rs = "0.1.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -106,11 +106,11 @@ The crate depends only on `tokio` for async process I/O, `serde`/`serde_json` fo
 
 ## Contributing
 
-Contributions are welcome. Consult `STANDARD.md` at the workspace root for engineering standards (no stubs, no silent failures, test everything). Before sending a patch:
+Contributions are welcome. Before sending a patch:
 
-1. Run `cargo +nightly test -p commix-rs` - all tests must pass.
-2. Run `santh-conform check bindings/commix` - no new findings.
-3. Keep changes inside `bindings/commix`; do not modify shared workspace configuration.
+1. Run `cargo test` — all tests must pass.
+2. Run `cargo clippy --all-targets -- -D warnings` — no warnings.
+3. Run `cargo fmt --check` — formatting must match.
 
 ## License
 

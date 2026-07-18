@@ -53,6 +53,7 @@ fn builder_build_produces_runner() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn builder_all_fields_accepted_without_panic() {
     // Verify that all builder methods accept their values without panicking.
     let _runner = CommixBuilder::new()

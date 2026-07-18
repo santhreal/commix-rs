@@ -13,6 +13,9 @@ pub enum Confidence {
 }
 
 /// The injection technique used by Commix.
+///
+/// Serialized JSON uses lowercase wire names (via `rename_all = "lowercase"`):
+/// `classic`, `timebasedblind`, `evalbased`, `filebased`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Technique {

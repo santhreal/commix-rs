@@ -33,10 +33,11 @@
 //! - **Outbound network:** This crate makes no outbound network connections itself. All HTTP traffic
 //!   is performed by the `commix` subprocess; network behaviour is entirely controlled by the
 //!   operator-supplied `commix` binary and the URL/proxy/timeout arguments passed to it.
-//! - **Process spawning:** Exactly one child process is spawned per `scan()` / `scan_stream()` call.
-//!   The child is created with `kill_on_drop(true)` so it is terminated when the `CommixRunner` is
-//!   dropped. No shell is involved; arguments are passed as discrete `OsStr` tokens to avoid
-//!   shell injection.
+//! - **Process spawning:** Each `scan()` / `scan_stream()` call runs a `--version` preflight
+//!   (`commix --version`) to verify the binary, then spawns the scan subprocess (two child
+//!   processes per call). The scan child is created with `kill_on_drop(true)` so it is terminated
+//!   when the `CommixRunner` is dropped. No shell is involved; arguments are passed as discrete
+//!   `OsStr` tokens to avoid shell injection.
 //! - **Filesystem writes:** This crate writes nothing to disk. Temporary files, session databases,
 //!   and scan logs are the sole responsibility of the `commix` subprocess operating in its own
 //!   working directory.

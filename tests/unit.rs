@@ -16,6 +16,7 @@ fn builder_default_builds_without_panic() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn builder_full_chain_builds_without_panic() {
     let _runner = CommixBuilder::new()
         .url("http://example.com/page?id=1")
@@ -326,8 +327,10 @@ fn error_display_process_failed() {
     let e = CommixError::ProcessFailed {
         status: Some(127),
         signal: None,
+        stderr: "engine stderr".into(),
     };
     assert!(format!("{}", e).contains("127"));
+    assert!(format!("{}", e).contains("engine stderr"));
 }
 
 #[test]

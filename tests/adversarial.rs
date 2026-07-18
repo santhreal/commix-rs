@@ -279,6 +279,7 @@ fn builder_max_u8_level_accepted() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn builder_max_u8_threads_accepted() {
     let b = CommixBuilder::new().threads(u8::MAX);
     let _runner = b.build();
@@ -302,10 +303,7 @@ fn builder_oversized_headers_count_preserved_in_argv() {
 #[test]
 fn builder_cookie_interior_null_command_argv_introspection_uses_placeholder() {
     let cookie = "session=abc\x00def";
-    let argv = CommixBuilder::new()
-        .cookie(cookie)
-        .build()
-        .command_argv();
+    let argv = CommixBuilder::new().cookie(cookie).build().command_argv();
     let cookie_argv = argv
         .windows(2)
         .find(|pair| pair[0] == "--cookie")
