@@ -154,11 +154,10 @@ fn gap_result_display_one_based_index() {
     assert!(!s.contains("0."), "gap: no 0-indexed entry expected");
 }
 
-// ---- Limitation: StreamParser is NOT Send/Sync (it does not need to be) ----
+// ---- StreamParser is Send (owned by one task; not Sync) ----
 
-/// StreamParser is intentionally designed to be owned by a single task on one
-/// Tokio stream.  It holds non-thread-safe String accumulators and is not Arc-able.
-/// Pin this so adding `Send` bounds does not silently break the ownership model.
+/// `StreamParser` is `Send` and may be moved across tasks, but it is not `Sync` and
+/// should be owned by a single parser loop (not shared behind `Arc`).
 #[test]
 fn gap_stream_parser_is_send() {
     fn assert_send<T: Send>() {}
@@ -210,6 +209,21 @@ fn gap_parser_technique_defaults_classic_without_keywords() {
             "gap: unrecognized technique text defaults to Classic"
         ),
         _ => panic!("expected Finding"),
+    }
+}
+
+// ---- Gap: CommixError::Json reserved (not emitted by scan/runner) ----
+
+/// `CommixError::Json` exists for `From<serde_json::Error>` and future JSON pipelines;
+/// `scan`/`runner` do not construct it today.
+#[test]
+fn gap_json_error_variant_reserved_not_emitted_by_runner() {
+    let json_err: serde_json::Error =
+        serde_json::from_str::<serde_json::Value>("{invalid}").unwrap_err();
+    let err: CommixError = json_err.into();
+    match err {
+        CommixError::Json(_) => {}
+        other => panic!("expected reserved Json variant, got {other:?}"),
     }
 }
 

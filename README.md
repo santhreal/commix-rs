@@ -15,6 +15,9 @@ Key capabilities:
 - Basic-auth and bearer-token helpers that build the `Authorization` header (basic auth via the `base64` crate).
 - Stderr capped at 64 KB; stdout lines capped at 1 MB (oversize lines recorded in `execution_errors`).
 - `delay_secs` maps to `commix --delay` (seconds between HTTP requests).
+- `poc` on `CommixFinding` is filled from modern `[traffic] HTTP request` blocks (verbosity ≥ 2) or legacy `Request:` lines when present; otherwise it is empty.
+- Subprocess argv always includes `--disable-coloring` (Commix supports the flag); parser also strips ANSI before matching `|_` / `[+] Payload:`.
+- MSRV: Rust **1.71** (`rust-version` in `Cargo.toml`; CI runs `cargo +1.71.0 check`).
 
 ## Quick start
 
@@ -22,7 +25,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-commix-rs = "0.1.3"
+commix-rs = "0.1.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -104,7 +107,7 @@ The primary advantage over ad-hoc subprocess code is the builder API, the `kill_
 
 `commix-rs` lives in `bindings/commix` and is one of several tool-binding crates in the Santh security research ecosystem. It feeds structured `CommixFinding` records into Santh's threat intelligence and orchestration pipelines alongside other detection crates. The `CommixResult` type implements `serde::Serialize`/`Deserialize` so findings can be stored, forwarded, or merged with results from other scanners.
 
-The crate depends only on `tokio` for async process I/O, `serde`/`serde_json` for serialization, and `tracing` for structured logging.
+The crate depends on `tokio` for async process I/O, `serde`/`serde_json` for serialization, `base64` for basic-auth header encoding, and `tracing` for structured logging.
 
 ## Contributing
 

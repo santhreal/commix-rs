@@ -11,6 +11,7 @@ pub struct StreamParser {
     current_cve: Option<String>,
     current_technique: Technique,
     current_injection_type: String,
+    accumulating_traffic: bool,
 }
 
 impl Default for StreamParser {
@@ -21,6 +22,7 @@ impl Default for StreamParser {
             current_cve: None,
             current_technique: Technique::Classic,
             current_injection_type: "Unknown".to_string(),
+            accumulating_traffic: false,
         }
     }
 }
@@ -47,36 +49,51 @@ impl StreamParser {
     /// Feeds a single line of stdout into the state machine and returns a `ParseEvent` if the logic
     /// crosses a completion boundary.
     pub fn parse_line(&mut self, line: &str) -> ParseEvent {
-        let trimmed_raw = line.trim();
-
-        if let Some(payload) = trimmed_raw.strip_prefix("|_ ") {
-            return self.finalize_finding(payload.trim().to_string());
-        }
-        if let Some(payload_str) = trimmed_raw.strip_prefix("[+] Payload:") {
-            return self.finalize_finding(payload_str.trim().to_string());
-        }
-
         let normalized = normalize_line(line);
         trace!("commix parser ingested: {}", normalized);
+
+        if let Some(payload) = normalized.strip_prefix("|_ ") {
+            self.accumulating_traffic = false;
+            return self.finalize_finding(payload.trim().to_string());
+        }
+        if let Some(payload_str) = normalized.strip_prefix("[+] Payload:") {
+            self.accumulating_traffic = false;
+            return self.finalize_finding(payload_str.trim().to_string());
+        }
 
         extract_cve(&mut self.current_cve, &normalized);
 
         if let Some(event) = parse_warning_or_error(&normalized) {
+            self.accumulating_traffic = false;
             return event;
         }
 
         let content = strip_log_level(&normalized);
 
+        if let Some(event) = parse_traffic_line(self, content) {
+            return event;
+        }
+
         if content.starts_with("Request:") {
+            self.accumulating_traffic = false;
             self.current_poc = content.replace("Request:", "").trim().to_string();
             return ParseEvent::Wait;
         }
 
         if let Some((parameter, injection_type, technique)) = parse_injectable_line(content) {
+            self.accumulating_traffic = false;
             self.current_parameter = parameter;
             self.current_injection_type = injection_type;
             self.current_technique = technique;
             return ParseEvent::Wait;
+        }
+
+        if self.accumulating_traffic && is_traffic_continuation(content) {
+            append_traffic_line(&mut self.current_poc, content.trim());
+            return ParseEvent::Wait;
+        }
+        if self.accumulating_traffic {
+            self.accumulating_traffic = false;
         }
 
         ParseEvent::Wait
@@ -102,9 +119,35 @@ impl StreamParser {
         };
         self.current_technique = Technique::Classic;
         self.current_injection_type = "Unknown".to_string();
+        self.accumulating_traffic = false;
 
         ParseEvent::Finding(finding)
     }
+}
+
+fn parse_traffic_line(parser: &mut StreamParser, content: &str) -> Option<ParseEvent> {
+    let traffic = content.strip_prefix("[traffic] ")?;
+    if !traffic.contains("HTTP request") {
+        return None;
+    }
+    parser.accumulating_traffic = true;
+    parser.current_poc = traffic.trim().to_string();
+    Some(ParseEvent::Wait)
+}
+
+fn append_traffic_line(poc: &mut String, line: &str) {
+    if !poc.is_empty() {
+        poc.push('\n');
+    }
+    poc.push_str(line);
+}
+
+fn is_traffic_continuation(content: &str) -> bool {
+    let trimmed = content.trim();
+    !trimmed.is_empty()
+        && !trimmed.starts_with('[')
+        && !trimmed.starts_with("|_")
+        && !trimmed.starts_with("[+]")
 }
 
 fn normalize_line(line: &str) -> String {
@@ -161,7 +204,7 @@ fn strip_timestamp(input: &str) -> &str {
 
 fn strip_log_level(input: &str) -> &str {
     let trimmed = input.trim_start();
-    for prefix in ["[info] ", "[warning] ", "[error] "] {
+    for prefix in ["[info] ", "[warning] ", "[error] ", "[critical] "] {
         if let Some(rest) = trimmed.strip_prefix(prefix) {
             return rest;
         }
@@ -175,6 +218,9 @@ fn parse_warning_or_error(normalized: &str) -> Option<ParseEvent> {
         return Some(ParseEvent::Warning(warn.trim().to_string()));
     }
     if let Some(err) = trimmed.strip_prefix("[error]") {
+        return Some(ParseEvent::Error(err.trim().to_string()));
+    }
+    if let Some(err) = trimmed.strip_prefix("[critical]") {
         return Some(ParseEvent::Error(err.trim().to_string()));
     }
     if let Some(warn) = trimmed.strip_prefix("[!]") {
@@ -243,9 +289,9 @@ fn parse_technique_from_text(content: &str) -> Technique {
     let lower = content.to_ascii_lowercase();
     if lower.contains("time-based") {
         Technique::TimeBasedBlind
-    } else if lower.contains("file-based") {
+    } else if lower.contains("tempfile-based") || lower.contains("file-based") {
         Technique::FileBased
-    } else if lower.contains("eval-based") {
+    } else if lower.contains("dynamic code evaluation") || lower.contains("eval-based") {
         Technique::EvalBased
     } else {
         Technique::Classic
@@ -338,6 +384,66 @@ mod tests {
         match parser.parse_line(lines[3]) {
             ParseEvent::Error(e) => assert_eq!(e, "Connection timed out"),
             _ => panic!("expected Error"),
+        }
+    }
+
+    #[test]
+    fn test_parser_colored_payload_prefix_emits_finding() {
+        let mut parser = StreamParser::new();
+        parser.parse_line(
+            "[info] GET parameter 'cmd' appears to be injectable via classic command injection technique.",
+        );
+        let colored_payload = "           \x1b[90m|_ \x1b[0mlocalhost;echo VULN".to_string();
+        match parser.parse_line(&colored_payload) {
+            ParseEvent::Finding(f) => {
+                assert_eq!(f.parameter, "cmd");
+                assert_eq!(f.payload, "localhost;echo VULN");
+            }
+            _ => panic!("colored |_ prefix must finalize finding after ANSI strip"),
+        }
+    }
+
+    #[test]
+    fn test_parser_technique_tempfile_before_file_based() {
+        let technique = parse_technique_from_text(
+            "appears to be injectable via (results-based) tempfile-based command injection technique.",
+        );
+        assert_eq!(technique, Technique::FileBased);
+    }
+
+    #[test]
+    fn test_parser_technique_dynamic_code_evaluation_maps_eval() {
+        let technique = parse_technique_from_text(
+            "appears to be injectable via dynamic code evaluation technique.",
+        );
+        assert_eq!(technique, Technique::EvalBased);
+    }
+
+    #[test]
+    fn test_parser_traffic_lines_accumulate_poc() {
+        let mut parser = StreamParser::new();
+        parser.parse_line("[traffic] HTTP request [#1]:");
+        parser.parse_line("GET /test?id=1 HTTP/1.1");
+        parser.parse_line("Host: example.com");
+        parser.parse_line(
+            "GET parameter 'id' appears to be injectable via classic command injection technique.",
+        );
+        match parser.parse_line("|_ id=1;id") {
+            ParseEvent::Finding(f) => {
+                assert!(f.poc.contains("HTTP request [#1]:"));
+                assert!(f.poc.contains("GET /test?id=1 HTTP/1.1"));
+                assert!(f.poc.contains("Host: example.com"));
+            }
+            _ => panic!("expected Finding with traffic poc"),
+        }
+    }
+
+    #[test]
+    fn test_parser_critical_emits_error() {
+        let mut parser = StreamParser::new();
+        match parser.parse_line("[critical] Target host is unreachable") {
+            ParseEvent::Error(msg) => assert_eq!(msg, "Target host is unreachable"),
+            _ => panic!("expected Error for [critical]"),
         }
     }
 }

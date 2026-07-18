@@ -1,4 +1,4 @@
 [14:22:01] [info] GET parameter 'ip' appears to be injectable via (results-based) classic command injection technique.
-           |_ ;echo AWMZVA; id
+           [90m|_ [0m;echo AWMZVA; id
 [14:22:01] [warning] WAF/IPS detected
 [14:22:01] [error] Connection timed out

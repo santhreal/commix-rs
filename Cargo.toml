@@ -1,8 +1,8 @@
 [package]
 name = "commix-rs"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.71"
 authors = ["CORUM COLLECTIVE LLC (Santh Security)"]
 license = "MIT"
 homepage = "https://santh.io"

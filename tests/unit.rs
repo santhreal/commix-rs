@@ -411,6 +411,10 @@ fn parser_modern_warning_and_error_formats() {
         ParseEvent::Error(e) => assert_eq!(e, "Connection timed out"),
         _ => panic!("expected Error"),
     }
+    match p.parse_line("[14:22:01] [critical] Target host is unreachable") {
+        ParseEvent::Error(e) => assert_eq!(e, "Target host is unreachable"),
+        _ => panic!("expected Error for [critical]"),
+    }
 }
 
 #[test]

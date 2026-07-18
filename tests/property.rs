@@ -87,10 +87,12 @@ proptest! {
         }
     }
 
-    /// The payload extracted from a Finding always equals the text after "[+] Payload: "
-    /// (trimmed), regardless of content.
+    /// The payload extracted from a Finding equals the text after "[+] Payload: "
+    /// (trimmed) on the ANSI-normalized line. Raw ESC sequences are stripped before matching.
     #[test]
-    fn parser_payload_text_preserved_verbatim(payload in ".{0,500}") {
+    fn parser_payload_text_preserved_after_ansi_normalize(
+        payload in prop::string::string_regex("[^\u{1b}]{0,500}").unwrap(),
+    ) {
         let mut p = StreamParser::new();
         p.parse_line("[+] The GET parameter 'q' is vulnerable to injection");
         let line = format!("[+] Payload: {}", payload);

@@ -7,7 +7,7 @@ pub enum CommixError {
     /// An IO error occurred, likely related to the process spawn.
     Io(std::io::Error),
 
-    /// A JSON serialization or parsing error.
+    /// Reserved for future JSON deserialization paths; not constructed by scan/runner today.
     Json(serde_json::Error),
 
     /// Commix process exited with a failure status and no findings.

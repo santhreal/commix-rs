@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-07-17
+
+### Added
+- ANSI/timestamp normalization before `|_` / `[+] Payload:` matching; adversarial test and fixture with grey `|_` prefix.
+- `[traffic] HTTP request` PoC accumulation (modern Commix); legacy `Request:` retained.
+- `[critical]` parsed as `ParseEvent::Error`.
+- Technique heuristics: `tempfile-based` before `file-based`; `dynamic code evaluation` → `EvalBased`.
+- `--disable-coloring` always passed to commix subprocess.
+- Proxy userinfo redaction in `redact_command_debug`; scan span logs host-only URL; stderr debug log truncated.
+- CI: `clippy --all-targets`, MSRV job (`cargo +1.71.0 check`).
+- Gap test pinning reserved `CommixError::Json` variant.
+
+### Changed
+- `rust-version` raised to **1.71** (matches transitive deps).
+- `gap_stream_parser_is_send` comment corrected (`StreamParser` is `Send`).
+
 ## [0.1.3] - 2026-07-17
 
 ### Added

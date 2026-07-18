@@ -73,7 +73,7 @@ fn contract_readme_version_pin_matches_cargo_package_version() {
         readme_pin, package_version,
         "README install pin must match Cargo.toml version"
     );
-    assert_eq!(package_version, "0.1.3", "expected release version 0.1.3");
+    assert_eq!(package_version, "0.1.4", "expected release version 0.1.4");
 }
 
 #[test]
@@ -207,6 +207,7 @@ fn contract_documented_builder_flags_emit_expected_argv_tokens() {
     assert_eq!(argv_flag_value(&argv, "--delay").as_deref(), Some("5"));
     assert!(argv_contains(&argv, "--batch"));
     assert!(argv_contains(&argv, "--offline"));
+    assert!(argv_contains(&argv, "--disable-coloring"));
     assert_eq!(argv_flag_value(&argv, "--prefix").as_deref(), Some(";"));
     assert_eq!(argv_flag_value(&argv, "--suffix").as_deref(), Some("#"));
 }

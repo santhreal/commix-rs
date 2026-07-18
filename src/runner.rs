@@ -92,6 +92,7 @@ impl CommixRunner {
         if self.config.ignore_waf {
             cmd.arg("--skip-waf");
         }
+        cmd.arg("--disable-coloring");
 
         if let Some(url) = &self.config.url {
             cmd.arg("--url").arg(url);
@@ -220,7 +221,7 @@ impl CommixRunner {
             String::new()
         };
         if !stderr_msg.is_empty() {
-            debug!("Commix stderr: {}", stderr_msg);
+            debug!("Commix stderr: {}", redact_stderr_for_log(&stderr_msg));
         }
         if !status.success() && findings.is_empty() {
             error!("Commix exited with status {} and no findings", status);
@@ -333,7 +334,6 @@ impl CommixRunner {
     }
 
     /// Fires exactly one Commix scan asynchronously. Returns a monolithic result object at the end.
-    #[tracing::instrument(skip(self), name = "commix_scan", fields(url = self.config.url.as_deref().unwrap_or("unknown")))]
     pub async fn scan(&self) -> Result<CommixResult, CommixError> {
         self.spawn_execution(None).await
     }
@@ -416,6 +416,14 @@ impl CommixRunner {
         self.validate_config()?;
         self.ensure_binary_available().await?;
 
+        let url_label = self
+            .config
+            .url
+            .as_deref()
+            .map_or_else(|| "unset".to_string(), url_host_for_span);
+        let span = tracing::info_span!("commix_scan", url = %url_label);
+        let _guard = span.enter();
+
         let mut cmd = self.build_base_command();
         debug!("Spawning commix process: {}", redact_command_debug(&cmd));
         let child = cmd.spawn().map_err(|e| {
@@ -428,6 +436,37 @@ impl CommixRunner {
     }
 }
 
+fn url_host_for_span(url: &str) -> String {
+    let stripped = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+    let after_auth = stripped.rsplit('@').next().unwrap_or(stripped);
+    after_auth
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(after_auth)
+        .to_string()
+}
+
+fn redact_proxy_url(proxy: &str) -> String {
+    if let Some(at) = proxy.rfind('@') {
+        let scheme_end = proxy.find("://").map_or(0, |i| i + 3);
+        format!("{}<redacted>@{}", &proxy[..scheme_end], &proxy[at + 1..])
+    } else {
+        proxy.to_string()
+    }
+}
+
+fn redact_stderr_for_log(stderr: &str) -> String {
+    const MAX: usize = 512;
+    if stderr.len() <= MAX {
+        stderr.to_string()
+    } else {
+        format!("{}... (stderr log truncated)", &stderr[..MAX])
+    }
+}
+
 /// Redact sensitive argv values for debug logging.
 pub(crate) fn redact_command_debug(cmd: &Command) -> String {
     let std_cmd = cmd.as_std();
@@ -437,11 +476,16 @@ pub(crate) fn redact_command_debug(cmd: &Command) -> String {
     while i < args.len() {
         let arg = args[i].to_string_lossy();
         match arg.as_ref() {
-            "--cookie" | "--data" => {
+            "--cookie" | "--data" | "--proxy" => {
                 parts.push(format!("{arg:?}"));
                 i += 1;
                 if i < args.len() {
-                    parts.push("\"<redacted>\"".to_string());
+                    if arg == "--proxy" {
+                        let proxy = args[i].to_string_lossy();
+                        parts.push(format!("{:?}", redact_proxy_url(&proxy)));
+                    } else {
+                        parts.push("\"<redacted>\"".to_string());
+                    }
                     i += 1;
                 }
             }
@@ -660,6 +704,44 @@ mod tests {
             "expected oversized stdout line error, got {:?}",
             result.execution_errors
         );
+    }
+
+    #[test]
+    fn redact_command_debug_hides_proxy_userinfo() {
+        let mut cmd = Command::new("commix");
+        cmd.arg("--url")
+            .arg("http://example.com")
+            .arg("--proxy")
+            .arg("http://user:secret@127.0.0.1:8080");
+        let redacted = redact_command_debug(&cmd);
+        assert!(!redacted.contains("secret"));
+        assert!(redacted.contains("<redacted>@127.0.0.1:8080"));
+    }
+
+    #[test]
+    fn build_base_command_always_disables_coloring() {
+        let runner = Commix::builder().url("http://example.com").build();
+        let argv = runner.command_argv();
+        assert!(
+            argv.iter().any(|arg| arg == "--disable-coloring"),
+            "argv must pass --disable-coloring: {argv:?}"
+        );
+    }
+
+    #[test]
+    fn url_host_for_span_strips_credentials_and_path() {
+        assert_eq!(
+            url_host_for_span("http://user:pass@example.com/path?q=1"),
+            "example.com"
+        );
+    }
+
+    #[test]
+    fn redact_stderr_for_log_truncates_long_output() {
+        let long = "x".repeat(600);
+        let redacted = redact_stderr_for_log(&long);
+        assert!(redacted.len() < 600);
+        assert!(redacted.contains("truncated"));
     }
 
     #[test]
